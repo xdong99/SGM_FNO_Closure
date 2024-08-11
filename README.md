@@ -16,7 +16,7 @@ e.g., the numerically resolved scales of the true system, sparse experimental me
 of the true closure term, and estimation of the closure term from existing physics-based
 models. Fast sampling algorithms are also investigated to ensure the efficiency of the proposed framework. 
 
-![schematic](Assets/schematic.jpg)
+![schematic](Assets/Schematic.jpg)
 
 A comprehensive study is performed on the 2-D Navier–Stokes equation, for which the stochastic viscous diffusion 
 term is assumed to be unknown. The proposed methodology provides a systematic approach via generative machine learning 
