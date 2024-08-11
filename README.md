@@ -22,3 +22,13 @@ A comprehensive study is performed on the 2-D Navier–Stokes equation, for whic
 term is assumed to be unknown. The proposed methodology provides a systematic approach via generative machine learning 
 techniques to construct data-driven stochastic closure models for multiscale dynamical systems with 
 continuous spatiotemporal fields.
+
+## Citations
+```
+@article{dong2024data,
+  title={Data-Driven Stochastic Closure Modeling via Conditional Diffusion Model and Neural Operator},
+  author={Dong, Xinghao and Chen, Chuanqi and Wu, Jin-Long},
+  journal={arXiv preprint arXiv:2408.02965},
+  year={2024}
+}
+```
