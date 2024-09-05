@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 import random
 import os
 
@@ -506,7 +505,6 @@ class FNO2d_Conv(nn.Module):
         gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
         return torch.cat((gridx, gridy), dim=-1).to(device)
 
-
 class FNO2d_NoSparse(nn.Module):
     def __init__(self, marginal_prob_std, modes1, modes2, width, embed_dim = 256):
         super().__init__()
@@ -633,8 +631,22 @@ class FNO2d_NoSparse(nn.Module):
         gridy = torch.tensor(np.linspace(0, 1, size_y), dtype=torch.float)
         gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
         return torch.cat((gridx, gridy), dim=-1).to(device)
-# Loss function
 
+# Loss function
+def loss_fn(model, x, w, x_sparse, marginal_prob_std, eps=1e-5, sparse=True):
+  random_t = (torch.rand(x.shape[0], device=x.device) * (1. - eps) + eps) * 2
+
+  z = torch.randn_like(x)
+  std = marginal_prob_std(random_t)
+  perturbed_target = x + z * std[:, None, None]
+  if sparse:
+    score = model(random_t, perturbed_target, w, x_sparse)
+  else:
+    score = model(random_t, perturbed_target, w)
+
+  loss = torch.mean(torch.sum((score * std[:, None, None] + z)**2, dim=(1, 2)))
+
+  return loss, score
 
 ################################
 ########### Sampling ###########
@@ -648,4 +660,30 @@ def get_sigmas_karras(n, time_min, time_max, rho=7.0, device="cpu"):
     max_inv_rho = time_max ** (1 / rho)
     sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** rho
     return append_zero(sigmas).to(device)
-#Naive sampling: Euler-Maruyama sampler
+
+
+def sampler(condition,
+           sparse_data,
+           score_model,
+           marginal_prob_std,
+           diffusion_coeff,
+           batch_size,
+           spatial_dim,
+           num_steps,
+           time_noises,
+           device):
+    t = torch.ones(batch_size, device=device) * 0.1
+    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
+    x = init_x
+
+    with (torch.no_grad()):
+        for i in range(num_steps):
+            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
+            step_size = time_noises[i] - time_noises[i + 1]
+            g = diffusion_coeff(batch_time_step)
+            grad = score_model(batch_time_step, x, condition, sparse_data)
+            # grad = score_model(batch_time_step, x, condition)
+            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
+            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
+
+    return mean_x

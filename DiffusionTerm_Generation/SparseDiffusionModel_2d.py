@@ -17,63 +17,13 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from utility import (set_seed, marginal_prob_std, diffusion_coeff,FNO2d_Interp, FNO2d_Conv,
-                     FNO2d_NoSparse, get_sigmas_karras)
+                     FNO2d_NoSparse, loss_fn, get_sigmas_karras, sampler)
 
 # Check if CUDA is available
 if torch.cuda.is_available():
     print("CUDA is available.")
 else:
     print("CUDA is not available.")
-
-################################
-#########  Training  ###########
-################################
-
-def loss_fn(model, x, w, x_sparse, marginal_prob_std, eps=1e-5, sparse=True):
-  random_t = (torch.rand(x.shape[0], device=x.device) * (1. - eps) + eps) * 2
-
-  z = torch.randn_like(x)
-  std = marginal_prob_std(random_t)
-  perturbed_target = x + z * std[:, None, None]
-  if sparse:
-    score = model(random_t, perturbed_target, w, x_sparse)
-  else:
-    score = model(random_t, perturbed_target, w)
-
-  loss = torch.mean(torch.sum((score * std[:, None, None] + z)**2, dim=(1, 2)))
-
-  return loss, score
-
-################################
-########### Sampling ###########
-################################
-
-def sampler(condition,
-           sparse_data,
-           score_model,
-           marginal_prob_std,
-           diffusion_coeff,
-           batch_size,
-           spatial_dim,
-           num_steps,
-           time_noises,
-           device):
-    t = torch.ones(batch_size, device=device) * 0.1
-    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-    x = init_x
-
-    with (torch.no_grad()):
-        for i in range(num_steps):
-            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
-            step_size = time_noises[i] - time_noises[i + 1]
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x, condition, sparse_data)
-            # grad = score_model(batch_time_step, x, condition)
-            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
-            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-
-    return mean_x
-
 
 ##############################
 #######  Data Loading ########
@@ -334,17 +284,6 @@ samples_64_interp = sampler(test_vorticity_64[:sample_batch_size, :, :], test_di
 samples_128_interp = sampler(test_vorticity_128[:sample_batch_size, :, :], test_diffusion_128_sparse[:sample_batch_size, :, :])
 samples_256_interp = sampler(test_vorticity_256[:sample_batch_size, :, :], test_diffusion_256_sparse[:sample_batch_size, :, :])
 
-
-sampler = partial(Euler_Maruyama_sampler_nosparse,
-                  score_model = model,
-                  marginal_prob_std = marginal_prob_std_fn,
-                  diffusion_coeff = diffusion_coeff_fn,
-                  batch_size = sample_batch_size,
-                  spatial_dim = sample_spatial_dim,
-                  num_steps = num_steps,
-                  device = sample_device,
-                  eps = 1e-3)
-samples_64_no_sparse = sampler(test_vorticity_64[:sample_batch_size, :, :])
 set_seed(12)
 
 fig, axs = plt.subplots(3, 4, figsize=(20, 15), constrained_layout=True)
