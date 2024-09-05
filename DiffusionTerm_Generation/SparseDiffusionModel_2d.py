@@ -30,18 +30,6 @@ else:
 ################################
 
 def loss_fn(model, x, w, x_sparse, marginal_prob_std, eps=1e-5, sparse=True):
-  """
-  The loss function for training score-based generative models with FNO.
-
-  Args:
-    model: A PyTorch model instance that represents a
-      time-dependent score-based model.
-    x: A mini-batch of training data, diffusion values here
-    w: A mini-batch of conditions, velocity values here
-    marginal_prob_std: A function that gives the standard deviation of
-      the perturbation kernel.
-    eps: A tolerance value for numerical stability.
-  """
   random_t = (torch.rand(x.shape[0], device=x.device) * (1. - eps) + eps) * 2
 
   z = torch.randn_like(x)
@@ -60,59 +48,31 @@ def loss_fn(model, x, w, x_sparse, marginal_prob_std, eps=1e-5, sparse=True):
 ########### Sampling ###########
 ################################
 
-#Naive sampling: Euler-Maruyama sampler
-def Euler_Maruyama_sampler(condition,
-                           sparse_data,
-                           score_model,
-                           marginal_prob_std,
-                           diffusion_coeff,
-                           batch_size,
-                           spatial_dim,
-                           num_steps,
-                           device,
-                           eps):
-    t = torch.ones(batch_size, device=device)
+def sampler(condition,
+           sparse_data,
+           score_model,
+           marginal_prob_std,
+           diffusion_coeff,
+           batch_size,
+           spatial_dim,
+           num_steps,
+           time_noises,
+           device):
+    t = torch.ones(batch_size, device=device) * 0.1
     init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-
-    time_steps = torch.linspace(1., eps, num_steps, device=device)
-    step_size = time_steps[0] - time_steps[1]
-    x_target = init_x
+    x = init_x
 
     with (torch.no_grad()):
-        for time_step in time_steps:
-            batch_time_step = torch.ones(batch_size, device=device) * time_step
+        for i in range(num_steps):
+            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
+            step_size = time_noises[i] - time_noises[i + 1]
             g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x_target, condition, sparse_data)
-            mean_x_target = x_target + (g ** 2)[:, None, None] * grad * step_size
-            x_target = mean_x_target + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x_target)
-    # Do not include any noise in the last sampling step.
-    return mean_x_target
+            grad = score_model(batch_time_step, x, condition, sparse_data)
+            # grad = score_model(batch_time_step, x, condition)
+            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
+            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
 
-def Euler_Maruyama_sampler_nosparse(condition,
-                           score_model,
-                           marginal_prob_std,
-                           diffusion_coeff,
-                           batch_size,
-                           spatial_dim,
-                           num_steps,
-                           device,
-                           eps):
-    t = torch.ones(batch_size, device=device)
-    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-
-    time_steps = torch.linspace(1., eps, num_steps, device=device)
-    step_size = time_steps[0] - time_steps[1]
-    x_target = init_x
-
-    with (torch.no_grad()):
-        for time_step in time_steps:
-            batch_time_step = torch.ones(batch_size, device=device) * time_step
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x_target, condition)
-            mean_x_target = x_target + (g ** 2)[:, None, None] * grad * step_size
-            x_target = mean_x_target + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x_target)
-    # Do not include any noise in the last sampling step.
-    return mean_x_target
+    return mean_x
 
 
 ##############################
@@ -348,38 +308,8 @@ sde_time_data: float = 0.5
 sde_time_min = 1e-3
 sde_time_max = 0.1
 steps = 10
-
-
-
 time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
-time_noises = append_zero(torch.linspace(sde_time_max, sde_time_min, steps, device=device))
 
-
-
-def sampler(condition,
-           sparse_data,
-           score_model,
-           marginal_prob_std,
-           diffusion_coeff,
-           batch_size,
-           spatial_dim,
-           num_steps,
-           device):
-    t = torch.ones(batch_size, device=device) * 0.1
-    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-    x = init_x
-
-    with (torch.no_grad()):
-        for i in range(num_steps):
-            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
-            step_size = time_noises[i] - time_noises[i + 1]
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x, condition, sparse_data)
-            # grad = score_model(batch_time_step, x, condition)
-            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
-            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-
-    return mean_x
 
 sample_batch_size = 100
 sample_spatial_dim = 128
@@ -393,6 +323,7 @@ sampler = partial(sampler,
                     batch_size = sample_batch_size,
                     spatial_dim = sample_spatial_dim,
                     num_steps = num_steps,
+                    time_noises = time_noises,
                     device = sample_device)
 
 samples_64 = sampler(test_vorticity_64[:sample_batch_size, :, :], test_diffusion_64_sparse_normalized[:sample_batch_size, :, :])
