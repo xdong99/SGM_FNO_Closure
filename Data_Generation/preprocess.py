@@ -67,5 +67,17 @@ test_diffusion_64_sparse = test_diffusion_64[:, ::4, ::4]
 test_diffusion_128_sparse = test_diffusion_128[:, ::8, ::8]
 test_diffusion_256_sparse = test_diffusion_256[:, ::16, ::16]
 
-filename =
+filename = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\train_diffusion.h5'
+with h5py.File(filename, 'w') as file:
+    file.create_dataset('train_diffusion_64', data=train_diffusion_64.cpu().numpy())
+    file.create_dataset('train_vorticity_64', data=train_vorticity_64.cpu().numpy())
+
+filename = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\test_diffusion.h5'
+with h5py.File(filename, 'w') as file:
+    file.create_dataset('test_diffusion_64', data=test_diffusion_64.cpu().numpy())
+    file.create_dataset('test_vorticity_64', data=test_vorticity_64.cpu().numpy())
+    file.create_dataset('test_diffusion_128', data=test_diffusion_128.cpu().numpy())
+    file.create_dataset('test_vorticity_128', data=test_vorticity_128.cpu().numpy())
+    file.create_dataset('test_diffusion_256', data=test_diffusion_256.cpu().numpy())
+    file.create_dataset('test_vorticity_256', data=test_vorticity_256.cpu().numpy())
 
