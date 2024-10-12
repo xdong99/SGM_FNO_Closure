@@ -1,6 +1,5 @@
 import sys
 sys.path.append('C:\\UWMadisonResearch\\Conditional_Score_FNO')
-
 import torch
 import math
 from tqdm.notebook import tqdm
@@ -59,6 +58,7 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t, record_steps, stochastic_forcin
     lap = 4 * (math.pi ** 2) * (k_x ** 2 / a[0] ** 2 + k_y ** 2 / a[1] ** 2)
 
     lap[0, 0] = 1.0
+
     # Dealiasing mask
     dealias = torch.unsqueeze(
         torch.logical_and(torch.abs(k_y) <= (2.0 / 3.0) * k_max2, torch.abs(k_x) <= (2.0 / 3.0) * k_max1).float(), 0)
@@ -76,7 +76,6 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t, record_steps, stochastic_forcin
     # Physical time
     t = 0.0
     for j in tqdm(range(steps+1)):
-
         # Stream function in Fourier space: solve Poisson equation
         psi_h = w_h.clone()
         psi_h = psi_h.to(dtype=torch.float64)
@@ -125,7 +124,6 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t, record_steps, stochastic_forcin
         if stochastic_forcing:
             dW, dW2 = get_twod_dW(bj, stochastic_forcing['kappa'], w_h.shape[0], w_h.device)
             gudWh = stochastic_forcing['sigma'] * torch.fft.fft2(dW, dim=[-2, -1])
-            # gudWh = beta * torch.fft.fft2(dW, dim=[-2, -1])
             gudWh = torch.stack([gudWh.real, gudWh.imag], dim=-1)
         else:
             gudWh = torch.zeros_like(f_h)

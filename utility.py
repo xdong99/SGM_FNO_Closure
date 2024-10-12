@@ -13,10 +13,8 @@ def set_seed(seed: int = 42) -> None:
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    # When running on the CuDNN backend, two further options must be set
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
     os.environ["PYTHONHASHSEED"] = str(seed)
     print(f"Random seed set as {seed}")
 
@@ -73,7 +71,6 @@ class GaussianFourierProjection(nn.Module):
 # Dense layer for encoding time steps
 class Dense(nn.Module):
     """A fully connected layer that reshapes outputs to feature maps."""
-
     def __init__(self, input_dim, output_dim):
         super().__init__()
         self.dense = nn.Linear(input_dim, output_dim)
@@ -85,7 +82,6 @@ class Dense(nn.Module):
 class SpectralConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, modes1, modes2):
         super().__init__()
-
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.modes1 = modes1
@@ -682,7 +678,6 @@ def sampler(condition,
             step_size = time_noises[i] - time_noises[i + 1]
             g = diffusion_coeff(batch_time_step)
             grad = score_model(batch_time_step, x, condition, sparse_data)
-            # grad = score_model(batch_time_step, x, condition)
             mean_x = x + (g ** 2)[:, None, None] * grad * step_size
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
 

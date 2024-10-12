@@ -2,22 +2,16 @@ import sys
 sys.path.append('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation')
 import h5py
 import torch
-import gc
-
 from utility import set_seed
 
 
 ##############################
 #######  Data Loading ########
 ##############################
-# Load data
+# Load raw data
 device = torch.device('cuda')
-#
 filename = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\2d_ns_diffusion_40s_sto_midV_256.h5'
-
-# Open the HDF5 file
 with h5py.File(filename, 'r') as file:
-    # Load data directly into PyTorch tensors on the specified device
     sol_t = torch.tensor(file['t'][()], device='cuda')
     sol = torch.tensor(file['sol'][()], device='cuda')
     diffusion = torch.tensor(file['diffusion'][()], device='cuda')

@@ -27,85 +27,25 @@ else:
     print("CUDA is not available.")
     device = torch.device('cpu')
 
+# Load the data
+train_file = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\train_diffusion.h5'
+with h5py.File(train_file, 'r') as file:
+    train_diffusion_64 = torch.tensor(file['train_diffusion_64'][:], device=device)
+    train_vorticity_64 = torch.tensor(file['train_vorticity_64'][:], device=device)
 
-#Convoluted Sparse Information
-# Define the size of the convolutional kernel
-kernel_size = 7
-kernel64 = torch.ones(1, 1, kernel_size, kernel_size) / kernel_size ** 2
-kernel64 = kernel64.to(device)
+test_file = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\test_diffusion.h5'
+with h5py.File(test_file, 'r') as file:
+    test_diffusion_64 = torch.tensor(file['test_diffusion_64'][:], device=device)
+    test_vorticity_64 = torch.tensor(file['test_vorticity_64'][:], device=device)
+    test_diffusion_128 = torch.tensor(file['test_diffusion_128'][:], device=device)
+    test_vorticity_128 = torch.tensor(file['test_vorticity_128'][:], device=device)
+    test_diffusion_256 = torch.tensor(file['test_diffusion_256'][:], device=device)
+    test_vorticity_256 = torch.tensor(file['test_vorticity_256'][:], device=device)
 
-mask = torch.zeros_like(train_diffusion_64)
-mask[:, ::4, ::4] = 1
-train_diffusion_64_sparse = train_diffusion_64 * mask
-test_diffusion_64_sparse = test_diffusion_64 * mask[:Ntest, :, :]
-
-train_diffusion_64_sparse_squeezed = train_diffusion_64_sparse.unsqueeze(1)
-train_diffusion_64_sparse_GF = F.conv2d(train_diffusion_64_sparse_squeezed, kernel64, padding='same')
-train_diffusion_64_sparse_GF = train_diffusion_64_sparse_GF.squeeze(1)
-train_diffusion_64_sparse_normalized = torch.empty_like(train_diffusion_64_sparse_GF)
-for i in range(train_diffusion_64_sparse_GF.shape[0]):
-    batch_sparse = train_diffusion_64_sparse[i][train_diffusion_64_sparse[i] != 0]
-    batch_smoothed = train_diffusion_64_sparse_GF[i][train_diffusion_64_sparse_GF[i] != 0]
-    sparse_min, sparse_max = torch.min(batch_sparse), torch.max(batch_sparse)
-    smoothed_min, smoothed_max = torch.min(batch_smoothed), torch.max(batch_smoothed)
-    batch_normalized = (train_diffusion_64_sparse_GF[i] - smoothed_min) / (smoothed_max - smoothed_min)
-    batch_normalized = batch_normalized * (sparse_max - sparse_min) + sparse_min
-    train_diffusion_64_sparse_normalized[i] = batch_normalized
-
-test_diffusion_64_sparse_squeezed = test_diffusion_64_sparse.unsqueeze(1)
-test_diffusion_64_sparse_GF = F.conv2d(test_diffusion_64_sparse_squeezed, kernel64, padding='same')
-test_diffusion_64_sparse_GF = test_diffusion_64_sparse_GF.squeeze(1)
-test_diffusion_64_sparse_normalized = torch.empty_like(test_diffusion_64_sparse_GF)
-for i in range(test_diffusion_64_sparse_GF.shape[0]):
-    batch_sparse = test_diffusion_64_sparse[i][test_diffusion_64_sparse[i] != 0]
-    batch_smoothed = test_diffusion_64_sparse_GF[i][test_diffusion_64_sparse_GF[i] != 0]
-    sparse_min, sparse_max = torch.min(batch_sparse), torch.max(batch_sparse)
-    smoothed_min, smoothed_max = torch.min(batch_smoothed), torch.max(batch_smoothed)
-    batch_normalized = (test_diffusion_64_sparse_GF[i] - smoothed_min) / (smoothed_max - smoothed_min)
-    batch_normalized = batch_normalized * (sparse_max - sparse_min) + sparse_min
-    test_diffusion_64_sparse_normalized[i] = batch_normalized
-
-kernel_size = 15
-kernel128 = torch.ones(1, 1, kernel_size, kernel_size) / kernel_size ** 2
-kernel128 = kernel128.to(device)
-
-mask_128 = torch.zeros_like(test_diffusion_128)
-mask_128[:, ::8, ::8] = 1
-test_diffusion_128_sparse = test_diffusion_128 * mask_128
-test_diffusion_128_sparse_GF = F.conv2d(test_diffusion_128_sparse.unsqueeze(1), kernel128, padding='same')
-test_diffusion_128_sparse_GF = test_diffusion_128_sparse_GF.squeeze(1)
-test_diffusion_128_sparse_normalized = torch.empty_like(test_diffusion_128_sparse_GF)
-for i in range(test_diffusion_128_sparse_GF.shape[0]):
-    batch_sparse = test_diffusion_128_sparse[i][test_diffusion_128_sparse[i] != 0]
-    batch_smoothed = test_diffusion_128_sparse_GF[i][test_diffusion_128_sparse_GF[i] != 0]
-    sparse_min, sparse_max = torch.min(batch_sparse), torch.max(batch_sparse)
-    smoothed_min, smoothed_max = torch.min(batch_smoothed), torch.max(batch_smoothed)
-    batch_normalized = (test_diffusion_128_sparse_GF[i] - smoothed_min) / (smoothed_max - smoothed_min)
-    batch_normalized = batch_normalized * (sparse_max - sparse_min) + sparse_min
-    test_diffusion_128_sparse_normalized[i] = batch_normalized
-
-kernel_size = 31
-kernel256 = torch.ones(1, 1, kernel_size, kernel_size) / kernel_size ** 2
-kernel256 = kernel256.to(device)
-
-mask_256 = torch.zeros_like(test_diffusion_256)
-mask_256[:, ::16, ::16] = 1
-test_diffusion_256_sparse = test_diffusion_256 * mask_256
-test_diffusion_256_sparse_GF = F.conv2d(test_diffusion_256_sparse.unsqueeze(1), kernel256, padding='same')
-test_diffusion_256_sparse_GF = test_diffusion_256_sparse_GF.squeeze(1)
-test_diffusion_256_sparse_normalized = torch.empty_like(test_diffusion_256_sparse_GF)
-for i in range(test_diffusion_256_sparse_GF.shape[0]):
-    batch_sparse = test_diffusion_256_sparse[i][test_diffusion_256_sparse[i] != 0]
-    batch_smoothed = test_diffusion_256_sparse_GF[i][test_diffusion_256_sparse_GF[i] != 0]
-    sparse_min, sparse_max = torch.min(batch_sparse), torch.max(batch_sparse)
-    smoothed_min, smoothed_max = torch.min(batch_smoothed), torch.max(batch_smoothed)
-    batch_normalized = (test_diffusion_256_sparse_GF[i] - smoothed_min) / (smoothed_max - smoothed_min)
-    batch_normalized = batch_normalized * (sparse_max - sparse_min) + sparse_min
-    test_diffusion_256_sparse_normalized[i] = batch_normalized
-
+train_diffusion_64_sparse = train_diffusion_64[:, ::4, ::4]
 train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_diffusion_64,
                                                                           train_vorticity_64,
-                                                                          train_diffusion_64_sparse_normalized),
+                                                                          train_diffusion_64_sparse),
                                                                           batch_size=200, shuffle=True)
 
 
@@ -120,12 +60,12 @@ modes = 8
 width = 20
 epochs = 1000
 learning_rate = 0.001
-# scheduler_step = 200
-# scheduler_gamma = 0.5
+scheduler_step = 200
+scheduler_gamma = 0.5
 
-model = FNO2d_Conv(marginal_prob_std_fn, modes, modes, width).cuda()
+model = FNO2d_Interp(marginal_prob_std_fn, modes, modes, width).cuda()
 optimizer = Adam(model.parameters(), lr=learning_rate)
-# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
 
 tqdm_epoch = trange(epochs)
 
@@ -148,13 +88,13 @@ for epoch in tqdm_epoch:
         relative_loss = torch.mean(torch.norm(score - real_score, 2, dim=(1, 2))
                                    / torch.norm(real_score, 2, dim=(1, 2)))
         rel_err.append(relative_loss.item())
-    # scheduler.step()
+    scheduler.step()
     avg_loss_epoch = avg_loss / num_items
     relative_loss_epoch = np.mean(rel_err)
     loss_history.append(avg_loss_epoch)
     rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
-torch.save(model.state_dict(), 'SparseDiffusionModelMidV_3040_Conv.pth')
+torch.save(model.state_dict(), 'SparseDiffusionModelMidV_3040_Interp.pth')
 
 
 ################################
@@ -173,18 +113,7 @@ diffusion_coeff_fn = partial(diffusion_coeff, sigma=sigma, device_=device)
 
 model = FNO2d_Interp(marginal_prob_std_fn, modes, modes, width).cuda()
 ckpt = torch.load('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation'
-                  '\\Trained_Models\\SparseDiffusionModelMidV_3040_interp_newer.pth', map_location=device)
-model.load_state_dict(ckpt)
-
-model = FNO2d_NoSparse(marginal_prob_std_fn, modes, modes, width).cuda()
-ckpt = torch.load('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation'
-                  '\\Trained_Models\\SparseDiffusionModelMidV_3040_nosparse.pth', map_location=device)
-model.load_state_dict(ckpt)
-
-
-model = FNO2d_Conv(marginal_prob_std_fn, modes, modes, width).cuda()
-ckpt = torch.load('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation'
-                  '\\Trained_Models\\SparseDiffusionModelMidV_3040_conv.pth', map_location=device)
+                  '\\Trained_Models\\SparseDiffusionModelMidV_3040_interp.pth', map_location=device)
 model.load_state_dict(ckpt)
 
 
@@ -192,107 +121,32 @@ sde_time_data: float = 0.5
 sde_time_min = 1e-3
 sde_time_max = 0.1
 steps = 10
-time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
-
-
 sample_batch_size = 100
 sample_spatial_dim = 128
 sample_device = torch.device('cuda')
-num_steps = 10
 
+time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
 sampler = partial(sampler,
                   score_model = model,
                     marginal_prob_std = marginal_prob_std_fn,
                     diffusion_coeff = diffusion_coeff_fn,
                     batch_size = sample_batch_size,
                     spatial_dim = sample_spatial_dim,
-                    num_steps = num_steps,
+                    num_steps = steps,
                     time_noises = time_noises,
                     device = sample_device)
-
-samples_64 = sampler(test_vorticity_64[:sample_batch_size, :, :], test_diffusion_64_sparse_normalized[:sample_batch_size, :, :])
-samples_128 = sampler(test_vorticity_128[:sample_batch_size, :, :], test_diffusion_128_sparse_normalized[:sample_batch_size, :, :])
-samples_256 = sampler(test_vorticity_256[:sample_batch_size, :, :], test_diffusion_256_sparse_normalized[:sample_batch_size, :, :])
 
 samples_64_interp = sampler(test_vorticity_64[:sample_batch_size, :, :], test_diffusion_64_sparse[:sample_batch_size, :, :])
 samples_128_interp = sampler(test_vorticity_128[:sample_batch_size, :, :], test_diffusion_128_sparse[:sample_batch_size, :, :])
 samples_256_interp = sampler(test_vorticity_256[:sample_batch_size, :, :], test_diffusion_256_sparse[:sample_batch_size, :, :])
 
-set_seed(12)
-
-fig, axs = plt.subplots(3, 4, figsize=(20, 15), constrained_layout=True)
-plt.rcParams.update({'font.size': 16})
-
-# Ticks setting
-ticks_64 = np.arange(0, 64, 10 * 64 / 64)
-ticks_64_y = np.arange(4, 65, 10 * 64 / 64)[::-1]
-tick_labels_64 = [str(int(tick)) for tick in ticks_64]
-
-
-ticks_128 = np.arange(0, 128, 10 * 128 / 64)
-ticks_128_y = np.arange(8, 129, 10 * 128 / 64)[::-1]
-tick_labels_128 = [str(int(tick)) for tick in ticks_128]
-
-ticks_256 = np.arange(0, 256, 10 * 256 / 64)
-ticks_256_y = np.arange(16, 257, 10 * 256 / 64)[::-1]
-tick_labels_256 = [str(int(tick)) for tick in ticks_256]
-
-
-# Assuming torch.manual_seed or equivalent has been set as needed
-indices = [torch.randint(0, sample_batch_size, (1,)).item() for _ in range(4)]
-
-# Plotting
-for i, idx in enumerate(indices):
-    j = i % 4
-
-    # Truth plot 128
-    data1 = test_diffusion_64[idx, ...].cpu().numpy()
-    sns.heatmap(data1, ax=axs[0, j], cmap='rocket', cbar=(i % 4 == 3), vmin=-0.6, vmax=0.4)
-    axs[0, j].set_title(f"Truth {j+1}")
-    axs[0, j].set_xticks(ticks_64)
-    axs[0, j].set_yticks(ticks_64_y)
-    axs[0, j].set_xticklabels(tick_labels_64, rotation=0)
-    axs[0, j].set_yticklabels(tick_labels_64, rotation=0)
-
-    # Generated plot 128
-    data2 = samples_64_interp[idx, ...].cpu().numpy()
-    sns.heatmap(data2, ax=axs[1, j], cmap='rocket', cbar=(i % 4 == 3), vmin=-0.6, vmax=0.4)
-    axs[1, j].set_title(f"Generated {j+1}")
-    axs[1, j].set_xticks(ticks_64)
-    axs[1, j].set_yticks(ticks_64_y)
-    axs[1, j].set_xticklabels(tick_labels_64, rotation=0)
-    axs[1, j].set_yticklabels(tick_labels_64)
-
-    # Truth plot 256
-    data3 = abs(samples_64_interp[idx, ...].cpu().numpy() - test_diffusion_64[idx, ...].cpu().numpy())
-    sns.heatmap(data3, ax=axs[2, j], cmap='rocket', cbar=(i % 4 == 3), vmin=0, vmax=0.1)
-    axs[2, j].set_title(f"Error {j+1}")
-    axs[2, j].set_xticks(ticks_64)
-    axs[2, j].set_yticks(ticks_64_y)
-    axs[2, j].set_xticklabels(tick_labels_64, rotation=0)
-    axs[2, j].set_yticklabels(tick_labels_64)
-
-    # # Generated plot 256
-    # data4 = test_diffusion_256[idx, ...].cpu().numpy()
-    # sns.heatmap(data4, ax=axs[3, j], cmap='rocket', cbar=(i % 4 == 3), vmin=-0.6, vmax=0.4)
-    # axs[3, j].set_title(f"Generated {j+1}")
-    # axs[3, j].set_xticks(ticks_256)
-    # axs[3, j].set_yticks(ticks_256)
-    # axs[3, j].set_xticklabels(tick_labels_256, rotation=0)
-    # axs[3, j].set_yticklabels(tick_labels_256)
-
-for ax in axs.flat:
-    ax.tick_params(axis='both', which='major', labelsize=16)  # Adjust label size as needed
-plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
-plt.savefig('C:\\UWMadisonResearch\\Conditional_Score_FNO\\draft_plots\\G_test_64_interp.png', dpi=300, bbox_inches='tight')
-plt.show()
 
 nan_batches = torch.isnan(samples_64).any(dim=1).any(dim=1)
 valid_indices = torch.where(~nan_batches)[0]
-mse = torch.mean((samples_64[valid_indices] - test_diffusion_64[valid_indices, :, :])**2)
-rel_mse = (torch.mean( torch.norm(samples_64[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))
+mse = torch.mean((samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :])**2)
+rel_mse = (torch.mean( torch.norm(samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))
                     / torch.norm(test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))) )
-rel_mse_squ = (torch.mean( torch.norm(samples_64[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))**2
+rel_mse_squ = (torch.mean( torch.norm(samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))**2
                     / torch.norm(test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))**2) )
 
 

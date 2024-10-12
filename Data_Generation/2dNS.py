@@ -67,12 +67,10 @@ forcing_np = forcing.cpu().numpy()
 diffusion_np = diffusion.cpu().numpy()
 nu_np = np.array(nu)
 
-# Specify the filename for the HDF5 file
+# raw data
 filename = '2d_ns_diffusion_40s_sto_midV_256.h5'
 
-# Create a new HDF5 file
 with h5py.File(filename, 'w') as file:
-    # Create datasets within the file
     file.create_dataset('t', data=sol_t_np)
     file.create_dataset('sol', data=sol_np)
     file.create_dataset('sol_u', data=sol_u_np)
