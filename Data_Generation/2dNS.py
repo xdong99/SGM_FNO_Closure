@@ -1,5 +1,5 @@
 import sys
-sys.path.append('C:\\UWMadisonResearch\\Conditional_Score_FNO')
+sys.path.append('C:\\UWMadisonResearch\\SGM_FNO_Closure')
 
 import torch
 import numpy as np

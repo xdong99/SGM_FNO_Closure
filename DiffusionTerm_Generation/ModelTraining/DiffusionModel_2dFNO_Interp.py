@@ -1,23 +1,22 @@
 import sys
-sys.path.append('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation')
+sys.path.append('C:\\UWMadisonResearch\\SGM_FNO_Closure\\DiffusionTerm_Generation')
 
 import time
 import numpy as np
 import h5py
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 plt.rcParams["animation.html"] = "jshtml"
 from torch.optim import Adam
 from functools import partial
 from tqdm import trange
-import gc
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from utility import (set_seed, marginal_prob_std, diffusion_coeff,FNO2d_Interp, FNO2d_Conv,
-                     FNO2d_NoSparse, loss_fn, get_sigmas_karras, sampler)
+from utility import (set_seed, energy_spectrum, get_sigmas_karras, sampler)
+
+from Model_Designs import (marginal_prob_std, diffusion_coeff, FNO2d_Interp, loss_fn)
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -32,20 +31,11 @@ train_file = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\tra
 with h5py.File(train_file, 'r') as file:
     train_diffusion_64 = torch.tensor(file['train_diffusion_64'][:], device=device)
     train_vorticity_64 = torch.tensor(file['train_vorticity_64'][:], device=device)
+    train_diffusion_64_sparse_interp = torch.tensor(file['train_diffusion_64_sparse_interp'][:], device=device)
 
-test_file = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\test_diffusion.h5'
-with h5py.File(test_file, 'r') as file:
-    test_diffusion_64 = torch.tensor(file['test_diffusion_64'][:], device=device)
-    test_vorticity_64 = torch.tensor(file['test_vorticity_64'][:], device=device)
-    test_diffusion_128 = torch.tensor(file['test_diffusion_128'][:], device=device)
-    test_vorticity_128 = torch.tensor(file['test_vorticity_128'][:], device=device)
-    test_diffusion_256 = torch.tensor(file['test_diffusion_256'][:], device=device)
-    test_vorticity_256 = torch.tensor(file['test_vorticity_256'][:], device=device)
-
-train_diffusion_64_sparse = train_diffusion_64[:, ::4, ::4]
 train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_diffusion_64,
                                                                           train_vorticity_64,
-                                                                          train_diffusion_64_sparse),
+                                                                          train_diffusion_64_sparse_interp),
                                                                           batch_size=200, shuffle=True)
 
 
@@ -94,376 +84,10 @@ for epoch in tqdm_epoch:
     loss_history.append(avg_loss_epoch)
     rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
-torch.save(model.state_dict(), 'SparseDiffusionModelMidV_3040_Interp.pth')
+torch.save(model.state_dict(), 'SparseDiffusionModel_Interp.pth')
 
 
-################################
-##########  Sampling ###########
-################################
 
-# define and load model
-sigma = 26
-modes = 8
-width = 20
-s = 64
-sub = 8
-
-marginal_prob_std_fn = partial(marginal_prob_std, sigma=sigma, device_=device)
-diffusion_coeff_fn = partial(diffusion_coeff, sigma=sigma, device_=device)
-
-model = FNO2d_Interp(marginal_prob_std_fn, modes, modes, width).cuda()
-ckpt = torch.load('C:\\UWMadisonResearch\\Conditional_Score_FNO\\DiffusionTerm_Generation'
-                  '\\Trained_Models\\SparseDiffusionModelMidV_3040_interp.pth', map_location=device)
-model.load_state_dict(ckpt)
-
-
-sde_time_data: float = 0.5
-sde_time_min = 1e-3
-sde_time_max = 0.1
-steps = 10
-sample_batch_size = 100
-sample_spatial_dim = 128
-sample_device = torch.device('cuda')
-
-time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
-sampler = partial(sampler,
-                  score_model = model,
-                    marginal_prob_std = marginal_prob_std_fn,
-                    diffusion_coeff = diffusion_coeff_fn,
-                    batch_size = sample_batch_size,
-                    spatial_dim = sample_spatial_dim,
-                    num_steps = steps,
-                    time_noises = time_noises,
-                    device = sample_device)
-
-samples_64_interp = sampler(test_vorticity_64[:sample_batch_size, :, :], test_diffusion_64_sparse[:sample_batch_size, :, :])
-samples_128_interp = sampler(test_vorticity_128[:sample_batch_size, :, :], test_diffusion_128_sparse[:sample_batch_size, :, :])
-samples_256_interp = sampler(test_vorticity_256[:sample_batch_size, :, :], test_diffusion_256_sparse[:sample_batch_size, :, :])
-
-
-nan_batches = torch.isnan(samples_64).any(dim=1).any(dim=1)
-valid_indices = torch.where(~nan_batches)[0]
-mse = torch.mean((samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :])**2)
-rel_mse = (torch.mean( torch.norm(samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))
-                    / torch.norm(test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))) )
-rel_mse_squ = (torch.mean( torch.norm(samples_64_interp[valid_indices] - test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))**2
-                    / torch.norm(test_diffusion_64[valid_indices, :, :], 2, dim=(1, 2))**2) )
-
-
-mse = torch.mean((samples_128_interp[valid_indices] - test_diffusion_128[valid_indices, :, :])**2)
-rel_mse = (torch.mean( torch.norm(samples_128_interp[valid_indices] - test_diffusion_128[valid_indices, :, :], 2, dim=(1, 2))
-                    / torch.norm(test_diffusion_128[valid_indices, :, :], 2, dim=(1, 2))) )
-rel_mse_squ = (torch.mean( torch.norm(samples_128_interp[valid_indices] - test_diffusion_128[valid_indices, :, :], 2, dim=(1, 2))**2
-                    / torch.norm(test_diffusion_128[valid_indices, :, :], 2, dim=(1, 2))**2) )
-
-
-nan_batches = torch.isnan(samples_256_interp).any(dim=1).any(dim=1)
-valid_indices = torch.where(~nan_batches)[0]
-
-mse = torch.mean((samples_256_interp[valid_indices] - test_diffusion_256[valid_indices, :, :])**2)
-rel_mse = (torch.mean( torch.norm(samples_256_interp[valid_indices] - test_diffusion_256[valid_indices, :, :], 2, dim=(1, 2))
-                    / torch.norm(test_diffusion_256[valid_indices, :, :], 2, dim=(1, 2))) )
-rel_mse_squ = (torch.mean( torch.norm(samples_256_interp[valid_indices] - test_diffusion_256[valid_indices, :, :], 2, dim=(1, 2))**2
-                    / torch.norm(test_diffusion_256[valid_indices, :, :], 2, dim=(1, 2))**2) )
-
-
-
-
-def moving_average(data, window_size):
-    """ Simple moving average """
-    return np.convolve(data, np.ones(window_size), 'valid') / window_size
-
-def energy_spectrum(phi, lx=1, ly=1, smooth=True):
-    # Assuming phi is of shape (time_steps, nx, ny)
-    nx, ny = phi.shape[1], phi.shape[2]
-    nt = nx * ny
-
-    phi_h = np.fft.fftn(phi, axes=(1, 2)) / nt  # Fourier transform along spatial dimensions
-
-    energy_h = 0.5 * (phi_h * np.conj(phi_h)).real  # Spectral energy density
-
-    k0x = 2.0 * np.pi / lx
-    k0y = 2.0 * np.pi / ly
-    knorm = (k0x + k0y) / 3.0
-
-    kxmax = nx // 2
-    kymax = ny // 2
-
-    wave_numbers = knorm * np.arange(0, nx)
-
-    energy_spectrum = np.zeros(len(wave_numbers))
-
-    for kx in range(nx):
-        rkx = kx if kx <= kxmax else kx - nx
-        for ky in range(ny):
-            rky = ky if ky <= kymax else ky - ny
-            rk = np.sqrt(rkx ** 2 + rky ** 2)
-            k = int(np.round(rk))
-            if k < len(wave_numbers):
-                energy_spectrum[k] += np.sum(energy_h[:, kx, ky])
-
-    energy_spectrum /= knorm
-
-    if smooth:
-        smoothed_spectrum = moving_average(energy_spectrum, 5)  # Smooth the spectrum
-        smoothed_spectrum = np.append(smoothed_spectrum, np.zeros(4))  # Append zeros to match original length after convolution
-        smoothed_spectrum[:4] = np.sum(energy_h[:, :4, :4].real, axis=(0, 1, 2)) / (knorm * phi.shape[0])  # First 4 values corrected
-        energy_spectrum = smoothed_spectrum
-
-    knyquist = knorm * min(nx, ny) / 2
-
-    return knyquist, wave_numbers, energy_spectrum
-
-k64_gauss, E64_gauss = energy_spectrum(samples_64.cpu())[1:]
-k128_gauss, E128_gauss = energy_spectrum(samples_128.cpu())[1:]
-k256_gauss, E256_gauss = energy_spectrum(samples_256.cpu())[1:]
-
-
-k64_interp, E64_interp = energy_spectrum(samples_64_interp.cpu())[1:]
-k128_interp, E128_interp = energy_spectrum(samples_128_interp.cpu())[1:]
-k256_interp, E256_interp = energy_spectrum(samples_256_interp.cpu())[1:]
-
-k_truth_64, E_truth_64 = energy_spectrum(test_diffusion_64[:sample_batch_size, :, :].cpu())[1:]
-k_truth_128, E_truth_128 = energy_spectrum(test_diffusion_128[:sample_batch_size, :, :].cpu())[1:]
-k_truth_256, E_truth_256 = energy_spectrum(test_diffusion_256[:sample_batch_size, :, :].cpu())[1:]
-
-resolutions = [64, 128, 256]
-gauss_kn = [k64_gauss, k128_gauss, k256_gauss]
-gauss_E = [E64_gauss, E128_gauss, E256_gauss]
-
-interp_kn = [k64_interp, k128_interp, k256_interp]
-interp_E = [E64_interp, E128_interp, E256_interp]
-
-truth_kn = [k_truth_64, k_truth_128, k_truth_256]
-truth_E = [E_truth_64, E_truth_128, E_truth_256]
-
-fig, axs = plt.subplots(1, 3, figsize=(28, 10), sharey=True)
-fs = 34
-plt.rcParams.update({'font.size': fs})
-plt.rcParams.update({'legend.fontsize': 35})  # Ensure the legend font size is updated
-
-
-for i, res in enumerate(resolutions):
-    # Upper row plots
-    col = i
-    axs[col].loglog(truth_kn[i], truth_E[i], label='Truth', linestyle='-.', linewidth=4)
-    axs[col].loglog(interp_kn[i], interp_E[i], label='Interpolation', linestyle=':', linewidth=4)
-    axs[col].loglog(gauss_kn[i], gauss_E[i], label='Convolution', linestyle='--', linewidth=4)
-
-    axs[col].set_ylim(1e-18, 5 * 1e-1)
-    axs[col].set_xlim(0, 1e3)
-    axs[col].set_xscale('log')
-    axs[col].set_yscale('log')
-    axs[col].set_title(f'Energy Spectrum of $G$ ({res}x{res})', fontsize = fs)
-    axs[col].set_xlabel('Wave number (k)', fontsize = fs)
-
-axs[0].set_ylabel('Energy (E)', fontsize=fs)
-
-for ax in axs.flat:
-    ax.set_ylim(1e-18, 5 * 1e-1)
-    ax.set_xlim(0, 1e3)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-
-# Create a shared legend
-handles, labels = axs[0].get_legend_handles_labels()
-fig.legend(handles, labels, loc='upper center', ncol=3, fontsize=fs)
-# Adjust the layout to make space for the legend
-plt.tight_layout(rect=[0, 0, 1, 0.9])  # Adjust this value as needed
-plt.savefig('C:\\UWMadisonResearch\\Conditional_Score_FNO\\draft_plots\\TKECompare.png', dpi=300,
-            bbox_inches='tight')
-plt.show()
-
-
-
-
-
-
-### Do reverse SDE sampling every time step
-
-filename = 'C:\\UWMadisonResearch\\Conditional_Score_FNO\\Data_Generation\\2d_ns_diffusion_50s_sto_midV.h5'
-
-# Open the HDF5 file
-with h5py.File(filename, 'r') as file:
-    # Load data directly into PyTorch tensors on the specified device
-    sol_t = torch.tensor(file['t'][()], device='cuda')
-    sol = torch.tensor(file['sol'][()], device='cuda')
-    diffusion = torch.tensor(file['diffusion'][()], device='cuda')
-    nonlinear = torch.tensor(file['nonlinear'][()], device='cuda')
-
-## Vorticity Generation
-import math
-delta_t = 1e-3
-nu = 1e-3
-shifter = 30000
-sample_size = 1
-num_steps = 1000
-total_steps = 20000
-s = 64
-
-vorticity = sol[7:7+sample_size, :, :, shifter]
-vorticity_series = torch.zeros(sample_size, s, s, total_steps)
-vorticity_NoG = torch.zeros(sample_size, s, s, total_steps)
-
-t = torch.linspace(0, 1, s + 1, device=device)
-t = t[0:-1]
-
-X, Y = torch.meshgrid(t, t)
-f = 0.1 * (torch.sin(2 * math.pi * (X + Y)) + torch.cos(2 * math.pi * (X + Y)))
-
-
-
-
-# Define the size of the convolutional kernel
-
-diffusion_target = diffusion[7:7+sample_size, :, :, shifter: shifter+total_steps]
-vorticity_condition = sol[7:7+sample_size, :, :, shifter: shifter+total_steps]
-mask = torch.zeros_like(diffusion_target)
-mask[:, ::4, ::4, :] = 1
-diffusion_target_sparse = diffusion_target * mask
-diffusion_target_sparse_GF = torch.empty_like(diffusion_target_sparse)
-
-for t in range(total_steps):
-    slice_squeezed = diffusion_target_sparse[:, :, :, t].unsqueeze(1)
-    slice_convolved  = F.conv2d(slice_squeezed, kernel64, padding='same')
-    diffusion_target_sparse_GF[:, :, :, t] = slice_convolved.squeeze(1)
-
-diffusion_target_sparse_normalized = torch.empty_like(diffusion_target_sparse_GF)
-for i in range(diffusion_target_sparse_GF.shape[0]):
-    for t in range(diffusion_target_sparse_GF.shape[3]):
-        batch_sparse = diffusion_target_sparse[i, :, :, t][diffusion_target_sparse[i, :, :, t] != 0]
-        batch_smoothed = diffusion_target_sparse_GF[i, :, :, t][diffusion_target_sparse_GF[i, :, :, t] != 0]
-        sparse_min, sparse_max = torch.min(batch_sparse), torch.max(batch_sparse)
-        smoothed_min, smoothed_max = torch.min(batch_smoothed), torch.max(batch_smoothed)
-        batch_normalized = (diffusion_target_sparse_GF[i, :, :, t] - smoothed_min) / (smoothed_max - smoothed_min)
-        batch_normalized = batch_normalized * (sparse_max - sparse_min) + sparse_min
-        diffusion_target_sparse_normalized[i, :, :, t] = batch_normalized
-
-
-### Do reverse SDE sampling every 5 time steps
-
-start_time = time.time()
-# Do one Cranck-Nicolson step
-N1, N2 = vorticity.size()[-2], vorticity.size()[-1]
-
-# Maximum frequency
-k_max1 = math.floor(N1 / 2.0)
-k_max2 = math.floor(N1 / 2.0)
-
-# Wavenumbers in y-direction
-k_y = torch.cat((torch.arange(start=0, end=k_max2, step=1, device=vorticity.device),
-                 torch.arange(start=-k_max2, end=0, step=1, device=vorticity.device)), 0).repeat(N1, 1).transpose(0, 1)
-# Wavenumbers in x-direction
-k_x = torch.cat((torch.arange(start=0, end=k_max1, step=1, device=vorticity.device),
-                 torch.arange(start=-k_max1, end=0, step=1, device=vorticity.device)), 0).repeat(N2, 1)
-# Negative Laplacian in Fourier space
-lap = 4 * (math.pi ** 2) * (k_x ** 2 + k_y ** 2)
-lap[0, 0] = 1.0
-
-# Dealiasing mask
-dealias = torch.unsqueeze(
-    torch.logical_and(torch.abs(k_y) <= (2.0 / 3.0) * k_max2, torch.abs(k_x) <= (2.0 / 3.0) * k_max1).float(), 0)
-
-# Initial vorticity to Fourier space
-w_h = torch.fft.fftn(vorticity, dim=[1, 2])
-w_h = torch.stack([w_h.real, w_h.imag], dim=-1)
-
-# forcing
-f_h = torch.fft.fftn(f, dim=[-2, -1])
-f_h = torch.stack([f_h.real, f_h.imag], dim=-1)
-# If same forcing for the whole batch
-if len(f_h.size()) < len(w_h.size()):
-    f_h = torch.unsqueeze(f_h, 0)
-
-
-
-for i in range(total_steps):
-    print(i)
-    psi_h = w_h.clone()
-    psi_h[..., 0] = psi_h[..., 0] / lap
-    psi_h[..., 1] = psi_h[..., 1] / lap
-
-    # Velocity field in x-direction = psi_y
-    q = psi_h.clone()
-    temp = q[..., 0].clone()
-    q[..., 0] = -2 * math.pi * k_y * q[..., 1]
-    q[..., 1] = 2 * math.pi * k_y * temp
-    q = torch.fft.ifftn(torch.view_as_complex(q), dim=[1, 2], s=(N1, N2)).real
-
-    # Velocity field in y-direction = -psi_x
-    v = psi_h.clone()
-    temp = v[..., 0].clone()
-    v[..., 0] = 2 * math.pi * k_x * v[..., 1]
-    v[..., 1] = -2 * math.pi * k_x * temp
-    v = torch.fft.ifftn(torch.view_as_complex(v), dim=[1, 2], s=(N1, N2)).real
-
-    # Partial x of vorticity
-    w_x = w_h.clone()
-    temp = w_x[..., 0].clone()
-    w_x[..., 0] = -2 * math.pi * k_x * w_x[..., 1]
-    w_x[..., 1] = 2 * math.pi * k_x * temp
-    w_x = torch.fft.ifftn(torch.view_as_complex(w_x), dim=[1, 2], s=(N1, N2)).real
-
-    # Partial y of vorticity
-    w_y = w_h.clone()
-    temp = w_y[..., 0].clone()
-    w_y[..., 0] = -2 * math.pi * k_y * w_y[..., 1]
-    w_y[..., 1] = 2 * math.pi * k_y * temp
-    w_y = torch.fft.ifftn(torch.view_as_complex(w_y), dim=[1, 2], s=(N1, N2)).real
-
-    F_h = torch.fft.fftn(q * w_x + v * w_y, dim=[1, 2])
-    F_h = torch.stack([F_h.real, F_h.imag], dim=-1)
-
-    # Dealias
-    F_h[..., 0] = dealias * F_h[..., 0]
-    F_h[..., 1] = dealias * F_h[..., 1]
-
-    diffusion_target_sparse_normalized_iter = diffusion_target_sparse_normalized[:, :, :, i]
-    diffusion_target = diffusion[7:7+sample_size, :, :, shifter+i]
-
-    # if i % 5 == 0:
-    #     sampler = partial(sampler,
-    #                       score_model=model,
-    #                       marginal_prob_std=marginal_prob_std_fn,
-    #                       diffusion_coeff=diffusion_coeff_fn,
-    #                       batch_size=1,
-    #                       spatial_dim=64,
-    #                       num_steps=10,
-    #                       device='cuda')
-    #
-    #     diffusion_sample = sampler(vorticity, diffusion_target_sparse_normalized_iter)
-    #     mse = torch.mean((diffusion_sample - diffusion_target)**2)
-    #     rmse = torch.mean(torch.norm(diffusion_sample - diffusion_target, 2, dim=(1, 2)) / torch.norm(diffusion_target, 2, dim=(1, 2)))
-    #     print(f"MSE: {mse:.8f}, RMSE: {rmse:.8f}")
-    #
-    # else:
-    #     diffusion_sample = diffusion_sample + torch.randn_like(diffusion_sample) * 0.00005
-    #
-    # # laplacian term
-    # diffusion_h = torch.fft.fftn(diffusion_sample, dim=[1, 2])
-    # diffusion_h = torch.stack([diffusion_h.real, diffusion_h.imag], dim=-1)
-    #
-    # w_h[..., 0] = ((w_h[..., 0] - delta_t * F_h[..., 0] + delta_t * f_h[..., 0] + 0.5 * delta_t * diffusion_h[..., 0])
-    #                / (1.0 + 0.5 * delta_t * nu * lap))
-    # w_h[..., 1] = ((w_h[..., 1] - delta_t * F_h[..., 1] + delta_t * f_h[..., 1] + 0.5 * delta_t * diffusion_h[..., 1])
-    #                / (1.0 + 0.5 * delta_t * nu * lap))
-    #
-    # vorticity_series[..., i] = vorticity
-
-    w_h[..., 0] = ((w_h[..., 0] - delta_t * F_h[..., 0] + delta_t * f_h[..., 0])
-                   / (1.0 + 0.5 * delta_t * nu * lap))
-    w_h[..., 1] = ((w_h[..., 1] - delta_t * F_h[..., 1] + delta_t * f_h[..., 1])
-                   / (1.0 + 0.5 * delta_t * nu * lap))
-
-    vorticity_NoG[..., i] = vorticity
-
-
-    vorticity = torch.fft.ifftn(torch.view_as_complex(w_h), dim=[1, 2], s=(N1, N2)).real
-
-end_time = time.time()
-
-execution_time = end_time - start_time
-print(f"Execution time: {execution_time:.4f} seconds")
 
 
 
